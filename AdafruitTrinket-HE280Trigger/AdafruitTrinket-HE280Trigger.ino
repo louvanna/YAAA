@@ -3,9 +3,18 @@
 //--------------------------------------------------------------------
 // Sparkfun Trinket 3.3v to HE280 interface
 //
+// HISTORY
+//
 // MHackney 10/17/2016
 // Uses some Open Source code developed by SeeMeCNC in their Repetier fork to support the HE280
 // Uses the TinyWireM I2Ccommunication library
+//
+// MHackney 12/22/2016
+// Removed external LED and repurposed it (pin 3) as PROBE_MOD (Duet 0.8 and WiFi) to optionally reset (thanks to Trash80)
+// Reimplemented polling logic to look for HE280's accelerometer interrupt line rather than read a register (thanks to Trash80)
+// Cleaned out old code from pevious versions
+//
+//--------------------------------------------------------------------
 //
 // Function: process the HE280's accelerometer (IIS2DH) signal and report it 
 // to the Duet controller as a binary on/off signal mimicing an endstop switch
@@ -20,7 +29,7 @@
 // Trinket setup and programming information: https://learn.adafruit.com/introducing-trinket/starting-the-bootloader
 //
 // Arduino IDE Setup
-// ----------------------------
+//--------------------------------------------------------------------
 // Board: Adafruit Trinket 8MHz
 // Programmer: USBtinyISP
 //
@@ -39,9 +48,10 @@
 //                        #4 - INT      <--------   7                            BLUE
 //                                                  8 ---> Thermistor
 //
-// Endstop Vcc <========> BAT
+// Z_Probe_In  <========> #1
 // Endstop GND <========> GND
-// _Probe_In   <========> #1
+// Z_Probe_MOD <========> #3
+// Endstop Vcc <========> BAT
 //--------------------------------------------------------------------
 //
 // Trinket pins
@@ -49,7 +59,7 @@
 // #0   - SDA - from HE280 SDA (red wire)
 // #1   - OUTPUT_PIN - to controller endstop signal
 // #2   - SCL- from HE280 SCL (black wire)
-// #3   - LED
+// #3   - RESET_PIN - reset the accelerometer
 // #4   - INTERRUPT_PIN - from HE280 interrupt (blue wire)
 // #RST - [NC]/NO select - NOTE: this is the reset pin and must be disabled as such
 // BAT  - power from controller endstop Vcc
@@ -57,7 +67,7 @@
 //--------------------------------------------------------------------
 
 #define OUTPUT_PIN 1
-#define LED_PIN 3
+#define RESET_PIN 3
 #define INTERRUPT_PIN 4
 
 #define Z_PROBE_SENSITIVITY 25
@@ -98,27 +108,24 @@
 
 //--------------------------------------------------------------------
 
-#define FLASH_DURATION 100
-#define FLASH_PAUSE 500
+#define TRIGGER_DURATION 100
 
-volatile byte state = LOW;
-volatile bool got_interrupt = false;
 int i2c_error = false;
-int init_error = false;
-int counter = 0;
+//boolean resetAccelerometer = false;
 
 //--------------------------------------------------------------------
 //
 void setup()
 {
-  // setup LED
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  // setup reset pin
+  pinMode(RESET_PIN, INPUT_PULLUP);
 
   // setup output pin
   pinMode(OUTPUT_PIN, OUTPUT);
   digitalWrite(OUTPUT_PIN, LOW);
-  pinMode(INTERRUPT_PIN, INPUT_PULLUP);
+
+  // setup interrupt pin
+  pinMode(INTERRUPT_PIN, INPUT);
 
   accelerometer_init();
 }
@@ -291,53 +298,30 @@ void accelerometer_init()
 // get status
 void accelerometer_status()
 {
-    accelerometer_recv(0x31); // clears INT1_SRC IA (interrupt active) bit
-    accelerometer_recv(0x35); // clears INT2_SRC IA (interrupt active) bit
-    accelerometer_recv(0x39); // clears the CLICK_SRC IA (interrupt active) bit
-    accelerometer_recv(0x2D); // read OUT_Z_H
+    accelerometer_recv(INT1_SRC);   // clears INT1_SRC IA (interrupt active) bit
+    accelerometer_recv(INT2_SRC);   // clears INT2_SRC IA (interrupt active) bit
+    accelerometer_recv(CLICK_SRC);  // clears the CLICK_SRC IA (interrupt active) bit
+    accelerometer_recv(OUT_Z_H);    // read OUT_Z_H
 }
 
 //--------------------------------------------------------------------
 //
 void loop()
 {
-  if (init_error) {
-    // accelerometer could not be initiallized, blink fast 3 times and pause forever
-    digitalWrite(LED_PIN, HIGH);
-    delay(FLASH_DURATION);
-    digitalWrite(LED_PIN, LOW);
-    delay(FLASH_DURATION);
-    digitalWrite(LED_PIN, HIGH);
-    delay(FLASH_DURATION);
-    digitalWrite(LED_PIN, LOW);
-    delay(FLASH_DURATION);
-    digitalWrite(LED_PIN, HIGH);
-    delay(FLASH_DURATION);
-    digitalWrite(LED_PIN, LOW);
-    delay(FLASH_PAUSE);
-  } else {
-    // accelerometer is initialized and running
-    uint8_t int1_byte = accelerometer_read(INT1_SRC);
-    if (int1_byte & 0b11000000)
-    {
+  // accelerometer is initialized and running
+  if (!digitalRead(INTERRUPT_PIN)) {
+      // we received an interrupt from the HE280 accelerometer
       digitalWrite(OUTPUT_PIN, HIGH);
-      digitalWrite(LED_PIN, HIGH);
-      delay(FLASH_DURATION);
-      accelerometer_recv(INT1_SRC);
-      digitalWrite(LED_PIN, LOW);
+      delay(TRIGGER_DURATION);
       digitalWrite(OUTPUT_PIN, LOW);
-    }
-  
-    uint8_t click_byte = accelerometer_read(CLICK_SRC);
-    if (click_byte & 0b11000000)
-    {
-      digitalWrite(LED_PIN, HIGH);
-      delay(FLASH_PAUSE);
+      // clear the probe's interrupt
       accelerometer_status();
+  }
+  if (!digitalRead(RESET_PIN)) {
       accelerometer_status();
-      digitalWrite(LED_PIN, LOW);
-    }
-  }    
+      accelerometer_init();
+      delay(1500);
+  }
 }
 
 
