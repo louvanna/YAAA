@@ -66,11 +66,19 @@
 // GND  - ground from controller endstop ground
 //--------------------------------------------------------------------
 
+// this is only used if you connect to the Duet 0.8 or WiFi 4 pin Z Probe connector
+// comment out if you don't want to use this feature
+#define RESET_BEFORE_PROBE 1
+
 #define OUTPUT_PIN 1
+
+#ifdef RESET_BEFORE_PROBE
 #define RESET_PIN 3
+#endif
+
 #define INTERRUPT_PIN 4
 
-#define Z_PROBE_SENSITIVITY 25
+#define Z_PROBE_SENSITIVITY 20
 
 #define IIS2DH_ADDRESS 0x19
 
@@ -118,7 +126,7 @@ int i2c_error = false;
 void setup()
 {
   // setup reset pin
-  pinMode(RESET_PIN, INPUT_PULLUP);
+//  pinMode(RESET_PIN, INPUT_PULLUP);
 
   // setup output pin
   pinMode(OUTPUT_PIN, OUTPUT);
@@ -278,20 +286,20 @@ void accelerometer_init()
   // Prepare for action
   
   // reenable CTRL_REG3 - AOI1 interrupt on INT1 pin (but nt CLICK ???)
-  accelerometer_recv(CTRL_REG3);
-  accelerometer_write(CTRL_REG3, 0b11000000); // CLICK interrupt on INT1 pin [7]. AOI (And Or Interrupt) on INT1 en [6]. AOI on INT2 en [5].
-  accelerometer_recv(CTRL_REG3);
+  //accelerometer_recv(CTRL_REG3);
+  //accelerometer_write(CTRL_REG3, 0b11000000); // CLICK interrupt on INT1 pin [7]. AOI (And Or Interrupt) on INT1 en [6]. AOI on INT2 en [5].
+  //accelerometer_recv(CTRL_REG3);
 
   // reset INT1_SRC - read the INT1 source, clears INT1_SRC IA (interrupt active) bit
-  accelerometer_recv(INT1_SRC);
+  //accelerometer_recv(INT1_SRC);
 
   // reenable CLICK_CFG - single click on Z
-  accelerometer_recv(CLICK_CFG);
-  accelerometer_write(CLICK_CFG, 0b00010000); // single click Z axis
-  accelerometer_recv(CLICK_CFG);
+  //accelerometer_recv(CLICK_CFG);
+  //accelerometer_write(CLICK_CFG, 0b00010000); // single click Z axis
+  //accelerometer_recv(CLICK_CFG);
 
   // reset CLICK_SRC - read the CLICK interrupt source, clears the CLICK_SRC IA (interrupt active) bit
-  accelerometer_recv(CLICK_SRC);
+  //accelerometer_recv(CLICK_SRC);
 }
 
 //--------------------------------------------------------------------
@@ -317,11 +325,13 @@ void loop()
       // clear the probe's interrupt
       accelerometer_status();
   }
+#ifdef RESET_BEFORE_PROBE  
   if (!digitalRead(RESET_PIN)) {
       accelerometer_status();
       accelerometer_init();
       delay(1500);
   }
+#endif
 }
 
 
